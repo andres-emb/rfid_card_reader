@@ -6,7 +6,7 @@
  * */
 
 #define SM_CMD_REQ_A			0x26
+#define SM_CMD_SELECT_CL1		0x93
+#define SM_CMD_CASCADE_TAG		0x88
 
-
-#define SM_CMD_STANDARD_SIZE
 #endif

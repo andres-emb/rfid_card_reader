@@ -1,9 +1,13 @@
 #ifndef __REGISTERS_H
 #define __REGISTERS_H
 
+/*
+ * This file defines the used registers of the card reader
+ */
+
 /* According with RC522 datasheet in the SPI address byte
  * the LSB should be 0 always
- * */
+ */
 
 #define COMMAND 		0x01 << 1 // h02
 #define MODE 			0x11 << 1 // h22

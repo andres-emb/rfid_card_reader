@@ -1,3 +1,4 @@
+/* Includes ------------------------------------------------------------------*/
 #include "rc522.h"
 #include "rc522_port.h"
 #include "API_delay.h"
@@ -5,16 +6,20 @@
 #include "commands.h"
 #include "card_commands.h"
 
-#define MAX_TRANSCEIVE_BUFFER_SIZE 64
+/* Private typedef -----------------------------------------------------------*/
 
+/* Store the card_reader state */
 typedef enum {
 	INITIALIZE,
 	SENSE_NEW_CARD,
 	WAITING_SENSE_RESPONSE,
-	RESPONSE_TIMED_OUT,
+	SELECT_NEW_CARD,
+	WAITING_SELECT_RESPONSE,
+	REPORT_SERIAL_NUMBER,
 	CARD_ERROR
 } card_reader_state_t;
 
+/* Store the result of the transceiver operation*/
 typedef enum {
 	TRANSCEIVE_OK,
 	TRANSCEIVE_WAITING,
@@ -22,33 +27,63 @@ typedef enum {
 	TRANSCEIVE_TIMEOUT
 } transceive_status_t;
 
+/* Store the response of the transceiver operation */
 typedef struct {
 	uint8_t buffer[MAX_TRANSCEIVE_BUFFER_SIZE];
 	uint8_t size;
-} transceive_response_t;
+} transceive_request_t;
 
+/* Private define ------------------------------------------------------------*/
+
+/* Private variables ---------------------------------------------------------*/
+
+/* Store the response of the transceiver operation */
+static transceive_request_t select_response;
+/* Store the card reader state */
 static card_reader_state_t card_reader_state;
+
+/* Private function prototypes -----------------------------------------------*/
 static void write_register(const uint8_t reg, const uint8_t value);
-static void write_register_multiple(const uint8_t reg, const uint8_t count, const uint8_t * data);
+static void write_register_multiple(
+		const uint8_t reg,
+		const uint8_t * buffer,
+		const uint8_t size
+);
 static void clear_register(const uint8_t reg, const uint8_t mask);
 static void card_reader_init(void);
 static void card_reader_reset(void);
-static uint8_t read_register(const uint8_t reg);
-static void read_register_multiple(const uint8_t reg, const uint8_t count, uint8_t *values, const uint8_t byte_aling);
-
+static void read_register_multiple(
+		const uint8_t reg,
+		uint8_t * buffer,
+		const uint8_t size
+);
 static void look_for_new_card(void);
-static transceive_status_t listen_to_new_card(void);
-
 static void turn_on_antenna(void);
 
+static uint8_t read_register(const uint8_t reg);
+
+static transceive_status_t listen_to_new_card(void);
+static transceive_status_t select_new_card(void);
+static transceive_status_t listen_to_select_command(
+		transceive_request_t * response
+);
 static transceive_status_t transceive_command(
-		const uint8_t smart_card_command,
+		const transceive_request_t * request,
 		const uint8_t valid_bits
 );
 
+static void report_serial_number_to_lcd(transceive_request_t request_response);
 
+
+/* Private functions ---------------------------------------------------------*/
+
+/**
+  * @brief  Send a command to the card reader to communicate with the Smart Card
+  * @param  request: struct with the buffer to send and the size of the buffer
+  * @retval TRANSCEIVE_OK
+  */
 static transceive_status_t transceive_command(
-		const uint8_t smart_card_command,
+		const transceive_request_t * request,
 		const uint8_t valid_bits
 )
 {
@@ -59,25 +94,36 @@ static transceive_status_t transceive_command(
 	write_register(COM_IRQ, 0x7F);
 	write_register(FIFO_LEVEL, 0x80);
 
-	write_register(FIFO_DATA, smart_card_command);
+	write_register_multiple(FIFO_DATA, request->buffer, request->size);
 
 	write_register(BIT_FRAMMING, bit_framming);
 
 	write_register(COMMAND, CMD_TRANSCEIVE);
-	uint8_t tmp = read_register(BIT_FRAMMING_REG);
+	uint8_t tmp = read_register(BIT_FRAMMING);
 
-	write_register(BIT_FRAMMING_REG, 0x80 | tmp);
+	write_register(BIT_FRAMMING, 0x80 | tmp);
 
 	return TRANSCEIVE_OK;
-
 }
 
+/**
+  * @brief  Clear the value of the desired register according with the mask
+  * @param  reg: register to be modified
+  * @param	mask: mask to be applied in the register value
+  * @retval None
+  */
 static void clear_register(const uint8_t reg, const uint8_t mask)
 {
 	uint8_t masked_value = read_register(reg) & (~mask);
 	write_register(reg, masked_value);
 }
 
+/**
+  * @brief  Transceive a REQ_A command to activate Smart Cards in the near
+  * 		field
+  * @param  None
+  * @retval None
+  */
 static void look_for_new_card(void)
 {
 	write_register(TX_MODE, 0x00);
@@ -86,50 +132,283 @@ static void look_for_new_card(void)
 	clear_register(COLLISION, 0x80);
 	uint8_t valid_bits = 7;
 
-	transceive_command(SM_CMD_REQ_A, valid_bits);
+	transceive_request_t request;
+	request.buffer[0] = SM_CMD_REQ_A;
+	request.size = 1;
+
+	transceive_command(&request, valid_bits);
 }
 
+/**
+  * @brief  Wait for the response of the REQ_A command
+  * 		field
+  * @param  None
+  * @retval TRANSCEIVE_OK: if the card reader receives a response from the Smart
+  * 		Card
+  *
+  * 		TRANSCEIVE_ERROR: if the max attempts are reached, could indicate a
+  * 		disconnection with the card reader
+  *
+  * 		TRANSCEIVE_TIMEOUT: if the interrupt bit of timeout has been
+  * 		activated
+  *
+  * 		TRANSCEIVE_WAITING: if the card reader is waiting for the response
+  * 		of the smart card
+  */
 static transceive_status_t listen_to_new_card(void)
 {
-	static uint8_t polling_attempts = 0;
-	static delay_t delay;
+	HAL_Delay(1);
+	static uint8_t polling_attempts;
 
 	if (polling_attempts == 0) {
-		delayInit(&delay, 10);
+		polling_attempts = 1;
 	}
 
-	if (delayRead(&delay)) {
-		polling_attempts++;
+	if (polling_attempts > 255) {
+		polling_attempts = 0;
+		return TRANSCEIVE_ERROR;
+	}
 
-		if (polling_attempts > 32) {
-			polling_attempts = 0;
-			return TRANSCEIVE_ERROR;
-		}
+	polling_attempts++;
 
-		uint8_t n = read_register(COM_IRQ);
-		if (n & 0x30) {
-			polling_attempts = 0;
-			return TRANSCEIVE_OK;
-		}
+	uint8_t n = read_register(COM_IRQ);
+	if (n & 0x30) {
+		polling_attempts = 0;
+		return TRANSCEIVE_OK;
+	}
 
-		if (n & 0x01) {
-			return TRANSCEIVE_TIMEOUT;
-		}
-
+	if (n & 0x01) {
+		return TRANSCEIVE_TIMEOUT;
 	}
 
 	return TRANSCEIVE_WAITING;
 }
 
+/**
+  * @brief  Initialize the card reader to be ready to send commands to the
+  * 		smart card
+  * @param  None
+  * @retval None
+  */
+static void card_reader_init(void)
+{
+	card_reader_reset();
+
+	write_register(TX_MODE, 0x00);
+	write_register(RX_MODE, 0x00);
+	write_register(MOD_WIDTH, 0x26);
+	write_register(T_MODE, 0x80);
+	write_register(T_PRESCALER, 0xA9);
+	write_register(T_RELOAD_H, 0x03);
+	write_register(T_RELOAD_L, 0xE8);
+	write_register(TX_ASK, 0x40);
+	write_register(MODE, 0x3D);
+
+	turn_on_antenna();
+}
+
+/**
+  * @brief  Reset the card reader by toggling the reset pin and
+  * 		executing the CMD_SOFT_RESET command
+  * @param  None
+  * @retval None
+  */
+static void card_reader_reset(void)
+{
+	reset_device();
+	write_register(COMMAND, CMD_SOFT_RESET);
+	HAL_Delay(100);
+}
+
+/**
+  * @brief  Modify the desired register with one byte
+  * @param  reg: register to be updated
+  * 		value: value to be written
+  * @retval None
+  */
+static void write_register(const uint8_t reg, const uint8_t value)
+{
+	card_reader_select_device();
+	card_reader_write_byte(reg);
+	card_reader_write_byte(value);
+	card_reader_unselect_device();
+}
+
+/**
+  * @brief  Modify the desired register with multiple bytes
+  * @param  reg: register to be updated
+  * 		buffer: array with the desired bytes to be written
+  * 		size: size of the buffer
+  * @retval None
+  */
+static void write_register_multiple(const uint8_t reg, const uint8_t * buffer, const uint8_t size)
+{
+	card_reader_select_device();
+	card_reader_write_byte(reg);
+
+	for (int i = 0; i < size; i++) {
+		card_reader_write_byte(buffer[i]);
+	}
+
+	card_reader_unselect_device();
+}
+
+/**
+  * @brief  Read one byte of the desired register
+  * @param  reg: register to be read
+  * @retval value: the value of the register
+  */
+static uint8_t read_register(const uint8_t reg)
+{
+	card_reader_select_device();
+	uint8_t value = card_reader_read_byte(reg);
+	card_reader_unselect_device();
+	return value;
+}
+
+/**
+  * @brief  Read multiple bytes of the desired register
+  * @param  reg: register to be read
+  * 		buffer: buffer to store the readed bytes
+  * 		size: number of bytes to be read
+  * @retval None
+  */
+static void read_register_multiple(const uint8_t reg, uint8_t * buffer, const uint8_t size)
+{
+
+	card_reader_select_device();
+	card_reader_read_multiple_byte(reg, buffer, size);
+	card_reader_select_device();
+}
+
+/**
+  * @brief  Write the specific registers to turn on the card reader antenna
+  * @param  None
+  * @retval None
+  */
+static void turn_on_antenna()
+{
+	uint8_t value = read_register(TX_CONTROL);
+
+	if ((value & 0x03) != 0x03) {
+		write_register(TX_CONTROL, value | 0x03);
+	}
+}
+
+/**
+  * @brief  Send the select command to read the Smart Card serial number
+  * 		once it has discovered a new card
+  * @param  None
+  * @retval None
+  */
+static transceive_status_t select_new_card(void)
+{
+	clear_register(COLLISION, 0x80);
+
+	transceive_request_t request;
+
+	request.buffer[0] = SM_CMD_SELECT_CL1;
+	request.buffer[1] = 0x20;
+	request.size = 2;
+
+	uint8_t valid_bits = 0;
+
+	write_register(BIT_FRAMMING, 0x00);
+
+	transceive_command(&request, valid_bits);
+
+	return TRANSCEIVE_OK;
+}
+
+/**
+  * @brief  Constant poll of the card reader to wait for the select command
+  * 		response
+  *
+  * @param  response: stores the response of the select command
+  * @retval TRANSCEIVE_OK: if the card reader receives a response from the Smart
+  * 		Card
+  *
+  * 		TRANSCEIVE_ERROR: if the max attempts are reached, could indicate a
+  * 		disconnection with the card reader
+  *
+  * 		TRANSCEIVE_TIMEOUT: if the interrupt bit of timeout has been
+  * 		activated
+  *
+  * 		TRANSCEIVE_WAITING: if the card reader is waiting for the response
+  * 		of the smart card
+  */
+static transceive_status_t listen_to_select_command(transceive_request_t * response)
+{
+	HAL_Delay(1);
+	static uint8_t polling_attempts;
+
+	if (polling_attempts == 0) {
+		polling_attempts = 1;
+	}
+
+	if (polling_attempts > 255) {
+		polling_attempts = 0;
+		return TRANSCEIVE_ERROR;
+	}
+
+	polling_attempts++;
+
+	uint8_t n = read_register(COM_IRQ);
+	if (n & 0x30) {
+
+		uint8_t received_bytes = read_register(FIFO_LEVEL);
+
+		response->size = received_bytes;
+		read_register_multiple(FIFO_DATA, response->buffer, response->size);
+
+		polling_attempts = 0;
+		return TRANSCEIVE_OK;
+	}
+
+	if (n & 0x01) {
+		return TRANSCEIVE_TIMEOUT;
+	}
+
+	return TRANSCEIVE_WAITING;
+}
+
+/**
+  * @brief  Once it was received the response of the select command, send the
+  * 		serial number to be displayed on the LCD for 10 seconds
+  * @param  select_response: struct with the response of the select_command
+  * 		includes the serial number of the Smart Card
+  * 		rst: GPIO pin to control the reset of the card reader
+  * @retval True once the 10 seconds has been reached
+  */
+static bool_t report_serial_number_to_lcd(transceive_request_t * select_response)
+{
+	// Send data to LCD
+	HAL_Delay(10000);
+	// Clear data in LCD
+
+}
+
+/* Public functions ---------------------------------------------------------*/
+
+/**
+  * @brief  Reset the card reader state and capture the handlers of the
+  * 		SPI communication
+  * @param  spi_dev: structure to the SPI handler
+  * 		rst: GPIO pin to control the reset of the card reader
+  * @retval True
+  */
 bool_t card_reader_initialize(spi_device_t * spi_dev, reset_device_t * rst)
 {
 	capture_handlers(spi_dev, rst);
 	card_reader_state = INITIALIZE;
-
 	return true;
 }
 
-
+/**
+  * @brief  Based on the card reader state update the FSM
+  * @param  None
+  * @retval None
+  */
 void card_reader_poll()
 {
 	switch(card_reader_state) {
@@ -151,6 +430,7 @@ void card_reader_poll()
 			card_reader_state = SENSE_NEW_CARD;
 			break;
 		case TRANSCEIVE_WAITING:
+			card_reader_state = WAITING_SENSE_RESPONSE;
 			break;
 		case TRANSCEIVE_ERROR:
 		default:
@@ -158,119 +438,39 @@ void card_reader_poll()
 			break;
 		}
 		break;
-	case RESPONSE_TIMED_OUT:
+	case SELECT_NEW_CARD:
+		select_new_card();
+		card_reader_state = WAITING_SELECT_RESPONSE;
+		break;
+	case WAITING_SELECT_RESPONSE:
+		select_response.size = 5;
+		transceive_status_t select_result = listen_to_select_command(&select_response);
+		switch(select_result) {
+		case TRANSCEIVE_OK:
+			card_reader_state = REPORT_SERIAL_NUMBER;
+			break;
+		case TRANSCEIVE_TIMEOUT:
+			card_reader_state = SENSE_NEW_CARD;
+			break;
+		case TRANSCEIVE_WAITING:
+			card_reader_state = WAITING_SELECT_RESPONSE;
+			break;
+		case TRANSCEIVE_ERROR:
+		default:
+			card_reader_state = CARD_ERROR;
+			break;
+		}
+		break;
+	case REPORT_SERIAL_NUMBER:
+		if (!report_serial_number_to_lcd(select_response)) {
+			card_reader_state = REPORT_SERIAL_NUMBER;
+		} else {
+			card_reader_state = SENSE_NEW_CARD;
+		}
 		break;
 	case CARD_ERROR:
 	default:
 		card_reader_init();
 		break;
 	}
-}
-
-static void card_reader_init(void)
-{
-	card_reader_reset();
-
-	write_register(TX_MODE, 0x00);
-	write_register(RX_MODE, 0x00);
-	write_register(MOD_WIDTH, 0x26);
-	write_register(T_MODE, 0x80);
-	write_register(T_PRESCALER, 0xA9);
-	write_register(T_RELOAD_H, 0x03);
-	write_register(T_RELOAD_L, 0xE8);
-	write_register(TX_ASK, 0x40);
-	write_register(MODE, 0x3D);
-
-	turn_on_antenna();
-}
-
-static void card_reader_reset(void)
-{
-	reset_device();
-	write_register(COMMAND, CMD_SOFT_RESET);
-	HAL_Delay(100);
-}
-
-
-static void write_register(const uint8_t reg, const uint8_t value)
-{
-	card_reader_select_device();
-	card_reader_write_byte(reg);
-	card_reader_write_byte(value);
-	card_reader_unselect_device();
-}
-
-static void write_register_multiple(const uint8_t reg, const uint8_t count, const uint8_t * data)
-{
-	card_reader_select_device();
-	card_reader_write_byte(reg);
-
-	for (int i = 0; i < count; i++) {
-		card_reader_write_byte(data[i]);
-	}
-
-	card_reader_unselect_device();
-}
-
-static uint8_t read_register(const uint8_t reg)
-{
-	card_reader_select_device();
-	uint8_t value = card_reader_read_byte(reg);
-	card_reader_unselect_device();
-	return value;
-}
-
-static void read_register_multiple(const uint8_t reg, const uint8_t count, uint8_t *values, const uint8_t byte_aling)
-{
-
-	card_reader_select_device();
-	card_reader_read_multiple_byte(reg, count, values);
-	card_reader_select_device();
-}
-
-static void turn_on_antenna()
-{
-	uint8_t value = read_register(TX_CONTROL);
-
-	if ((value & 0x03) != 0x03) {
-		write_register(TX_CONTROL, value | 0x03);
-	}
-}
-
-bool_t self_test()
-{
-	write_register(COMMAND, 0x0F);
-	HAL_Delay(1000);
-
-	uint8_t zeros[25] = {0x00};
-	write_register(FIFO_LEVEL, 0x80);
-	write_register_multiple(FIFO_DATA, 25, zeros);
-	write_register(COMMAND, 0x01);
-
-
-	write_register(AUTO_TEST, 0x09);
-	write_register(FIFO_DATA, 0x00);
-
-	write_register(COMMAND, 0x03);
-
-	uint8_t n;
-
-	for (uint8_t i = 0; i < 0xFF; i++) {
-		n = read_register(FIFO_LEVEL);
-		if (n >= 64) {
-			break;
-		}
-	}
-
-	write_register(COMMAND, 0x00);
-
-
-	uint8_t result[64] = {0x00};
-	write_register_multiple(FIFO_DATA, 64, result);
-	write_register(AUTO_TEST, 0x00);
-
-	uint8_t version = read_register(VERSION);
-
-	return true;
-
 }
