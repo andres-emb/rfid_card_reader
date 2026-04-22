@@ -129,53 +129,6 @@ int main(void)
 
   card_reader_initialize(&spi_dev, &rst);
   lcd_initialize(&hi2c2);
-  set_high_line_position(0);
-  HAL_Delay(1000);
-
-  /*
-
-  set_high_line_position(6);
-  HAL_Delay(1000);
-  set_high_line_position(7);
-  HAL_Delay(1000);
-  set_high_line_position(8);
-  HAL_Delay(1000);
-  set_high_line_position(9);
-  HAL_Delay(1000);
-
-  lcd_send_data('a');
-
-  lcd_push_byte_data('a');
-  lcd_push_byte_data('h');
-
-  HAL_Delay(1000);
-  lcd_report_serial_number();
-   */
-
-  /*
-   *
-  uint8_t serial_number[15] =  "Serial Number:";
-
-
-  lcd_push_byte_data_array(serial_number, 14);
-
-  lcd_push_byte_data('S');
-  lcd_push_byte_data('e');
-  lcd_push_byte_data('r');
-  lcd_push_byte_data('i');
-  lcd_push_byte_data('a');
-  lcd_push_byte_data('l');
-  lcd_push_byte_data(' ');
-  lcd_push_byte_data('N');
-  lcd_push_byte_data('u');
-  lcd_push_byte_data('m');
-  lcd_push_byte_data('b');
-  lcd_push_byte_data('e');
-  lcd_push_byte_data('r');
-  lcd_push_byte_data(':');
-  */
-
-
 
   /* USER CODE END 2 */
 
