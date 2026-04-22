@@ -5,6 +5,7 @@
 #include "registers.h"
 #include "commands.h"
 #include "card_commands.h"
+#include "lcd.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -41,6 +42,10 @@ typedef struct {
 static transceive_request_t select_response;
 /* Store the card reader state */
 static card_reader_state_t card_reader_state;
+/* Store the delay used in transceive responses */
+static delay_t transaction_delay;
+/* Store the delay used in report operation */
+static delay_t report_delay;
 
 /* Private function prototypes -----------------------------------------------*/
 static void write_register(const uint8_t reg, const uint8_t value);
@@ -72,7 +77,7 @@ static transceive_status_t transceive_command(
 		const uint8_t valid_bits
 );
 
-static void report_serial_number_to_lcd(transceive_request_t request_response);
+static bool_t report_serial_number_to_lcd(transceive_request_t * request_response);
 
 
 /* Private functions ---------------------------------------------------------*/
@@ -157,16 +162,20 @@ static void look_for_new_card(void)
   */
 static transceive_status_t listen_to_new_card(void)
 {
-	HAL_Delay(1);
 	static uint8_t polling_attempts;
 
 	if (polling_attempts == 0) {
+		delayInit(&transaction_delay, 1);
 		polling_attempts = 1;
 	}
 
-	if (polling_attempts > 255) {
+	if (polling_attempts > 32) {
 		polling_attempts = 0;
 		return TRANSCEIVE_ERROR;
+	}
+
+	if (!delayRead(&transaction_delay)) {
+		return TRANSCEIVE_WAITING;
 	}
 
 	polling_attempts++;
@@ -205,6 +214,7 @@ static void card_reader_init(void)
 	write_register(MODE, 0x3D);
 
 	turn_on_antenna();
+	card_reader_state = INITIALIZE;
 }
 
 /**
@@ -339,16 +349,21 @@ static transceive_status_t select_new_card(void)
   */
 static transceive_status_t listen_to_select_command(transceive_request_t * response)
 {
-	HAL_Delay(1);
+
 	static uint8_t polling_attempts;
 
 	if (polling_attempts == 0) {
+		delayInit(&transaction_delay, 1);
 		polling_attempts = 1;
 	}
 
-	if (polling_attempts > 255) {
+	if (polling_attempts > 32) {
 		polling_attempts = 0;
 		return TRANSCEIVE_ERROR;
+	}
+
+	if (!delayRead(&transaction_delay)) {
+		return TRANSCEIVE_WAITING;
 	}
 
 	polling_attempts++;
@@ -382,10 +397,21 @@ static transceive_status_t listen_to_select_command(transceive_request_t * respo
   */
 static bool_t report_serial_number_to_lcd(transceive_request_t * select_response)
 {
-	// Send data to LCD
-	HAL_Delay(10000);
-	// Clear data in LCD
+	static bool_t reported = false;
 
+	if (!reported) {
+		delayInit(&report_delay, 10000);
+		lcd_report_serial_number(select_response->buffer, 4);
+		reported = true;
+	}
+
+	if (delayRead(&report_delay)) {
+		reported = false;
+		lcd_clear_screen();
+		return true;
+	} else {
+		return false;
+	}
 }
 
 /* Public functions ---------------------------------------------------------*/
@@ -462,10 +488,10 @@ void card_reader_poll()
 		}
 		break;
 	case REPORT_SERIAL_NUMBER:
-		if (!report_serial_number_to_lcd(select_response)) {
-			card_reader_state = REPORT_SERIAL_NUMBER;
-		} else {
+		if (report_serial_number_to_lcd(&select_response)) {
 			card_reader_state = SENSE_NEW_CARD;
+		} else {
+			card_reader_state = REPORT_SERIAL_NUMBER;
 		}
 		break;
 	case CARD_ERROR:
