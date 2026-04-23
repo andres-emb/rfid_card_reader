@@ -1,7 +1,0 @@
-../Drivers/rc522/src/rc522_port.c:22:6:capture_handlers	1
-../Drivers/rc522/src/rc522_port.c:33:6:reset_device	1
-../Drivers/rc522/src/rc522_port.c:53:6:card_reader_select_device	1
-../Drivers/rc522/src/rc522_port.c:67:6:card_reader_write_byte	1
-../Drivers/rc522/src/rc522_port.c:82:6:card_reader_unselect_device	1
-../Drivers/rc522/src/rc522_port.c:96:9:card_reader_read_byte	1
-../Drivers/rc522/src/rc522_port.c:120:6:card_reader_read_multiple_byte	2

@@ -32,6 +32,7 @@
 #define RESET_DELAY_MS					100
 #define REPORT_DELAY_MS					10000
 #define CARD_SERIAL_NUMBER_BYTES		4
+#define SELECT_RESPONSE_BYTES			5
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -513,7 +514,7 @@ void card_reader_poll()
 		card_reader_state = WAITING_SELECT_RESPONSE;
 		break;
 	case WAITING_SELECT_RESPONSE:
-		select_response.size = 5;
+		select_response.size = SELECT_RESPONSE_BYTES;
 		transceive_status_t select_result = listen_to_select_command(&select_response);
 		switch(select_result) {
 		case TRANSCEIVE_OK:
