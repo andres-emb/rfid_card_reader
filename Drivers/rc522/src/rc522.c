@@ -104,8 +104,29 @@ static transceive_status_t transceive_command(
 
 static bool_t report_serial_number_to_lcd(transceive_request_t * request_response);
 
+static void validate_transceive_request(const transceive_request_t * request);
+static void validate_buffer(const uint8_t * buffer);
 
 /* Private functions ---------------------------------------------------------*/
+/**
+  * @brief  Validate if the transceive_request_t pointer is not NULL
+  * @param  None
+  * @retval None
+  */
+static void validate_transceive_request(const transceive_request_t * request)
+{
+	if (request == NULL) error_handler();
+}
+
+/**
+  * @brief  Validate if the buffer pointer is not NULL
+  * @param  None
+  * @retval None
+  */
+static void validate_buffer(const uint8_t * buffer)
+{
+	if (buffer == NULL) error_handler();
+}
 
 /**
   * @brief  Send a command to the card reader to communicate with the Smart Card
@@ -117,6 +138,8 @@ static transceive_status_t transceive_command(
 		const uint8_t valid_bits
 )
 {
+	validate_transceive_request(request);
+
 	uint8_t tx_last_bits = valid_bits;
 	uint8_t bit_framming = tx_last_bits;
 
@@ -281,6 +304,8 @@ static void write_register(const uint8_t reg, const uint8_t value)
   */
 static void write_register_multiple(const uint8_t reg, const uint8_t * buffer, const uint8_t size)
 {
+	validate_buffer(buffer);
+
 	card_reader_select_device();
 	card_reader_write_byte(reg);
 
@@ -313,6 +338,7 @@ static uint8_t read_register(const uint8_t reg)
   */
 static void read_register_multiple(const uint8_t reg, uint8_t * buffer, const uint8_t size)
 {
+	validate_buffer(buffer);
 
 	card_reader_select_device();
 	card_reader_read_multiple_byte(reg, buffer, size);
@@ -363,6 +389,7 @@ static transceive_status_t select_new_card(void)
   */
 static transceive_status_t listen_to_select_command(transceive_request_t * response)
 {
+	validate_transceive_request(response);
 
 	static uint8_t polling_attempts;
 
@@ -411,6 +438,8 @@ static transceive_status_t listen_to_select_command(transceive_request_t * respo
   */
 static bool_t report_serial_number_to_lcd(transceive_request_t * select_response)
 {
+	validate_transceive_request(select_response);
+
 	static bool_t reported = false;
 
 	if (!reported) {
@@ -439,6 +468,7 @@ static bool_t report_serial_number_to_lcd(transceive_request_t * select_response
   */
 bool_t card_reader_initialize(spi_device_t * spi_dev, reset_device_t * rst)
 {
+	if (spi_dev == NULL || rst == NULL) error_handler();
 	capture_handlers(spi_dev, rst);
 	card_reader_state = INITIALIZE;
 	return true;

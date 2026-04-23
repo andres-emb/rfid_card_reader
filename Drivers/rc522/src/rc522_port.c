@@ -1,4 +1,5 @@
 #include "rc522_port.h"
+#include "common.h"
 
 /* Private define ------------------------------------------------------------*/
 /* Set the global timeout of the transmit operation */
@@ -11,7 +12,21 @@ static spi_device_t * spi_device;
 /* Store the reset GPIO handler */
 static reset_device_t * reset;
 
-/* Public functions ---------------------------------------------------------*/
+/* Function prototypes -------------------------------------------------------*/
+static void validate_hal_operation(const HAL_StatusTypeDef result);
+
+/* Private functions ---------------------------------------------------------*/
+
+/**
+  * @brief  Validate if the HAL operation was successful
+  * @param  None
+  * @retval None
+  */
+static void validate_hal_operation(const HAL_StatusTypeDef result) {
+	if (result != HAL_OK) error_handler();
+}
+
+/* Public functions ----------------------------------------------------------*/
 
 /**
   * @brief  Initialize the SPI and reset handlers
@@ -66,12 +81,13 @@ void card_reader_select_device(void)
   */
 void card_reader_write_byte(const uint8_t value)
 {
-	HAL_SPI_Transmit(
+	HAL_StatusTypeDef result = HAL_SPI_Transmit(
 		&spi_device->spi_handler,
 		&value,
 		BYTE_SIZE,
 		SPI_TRANSMIT_TIMEOUT_MS
 	);
+	validate_hal_operation(result);
 }
 
 /**
@@ -99,13 +115,15 @@ uint8_t card_reader_read_byte(const uint8_t reg)
 	card_reader_write_byte(0x80 | reg);
 	uint8_t stop_value = 0x00;
 
-	HAL_SPI_TransmitReceive(
+	HAL_StatusTypeDef result = HAL_SPI_TransmitReceive(
 		&spi_device->spi_handler,
 		&stop_value,
 		&value,
 		BYTE_SIZE,
 		SPI_TRANSMIT_TIMEOUT_MS
 	);
+
+	validate_hal_operation(result);
 
 	return value;
 }
@@ -123,34 +141,37 @@ void card_reader_read_multiple_byte(const uint8_t reg, uint8_t * buffer, const u
 	uint8_t stop_value = 0x00;
 	uint8_t read_value;
 
-	HAL_SPI_Transmit(
+	HAL_StatusTypeDef result = HAL_SPI_Transmit(
 		&spi_device->spi_handler,
 		&reg_value,
 		BYTE_SIZE,
 		SPI_TRANSMIT_TIMEOUT_MS
 	);
 
+	validate_hal_operation(result);
+
 	uint8_t i = 0;
 
 	while (i < size) {
-		HAL_SPI_TransmitReceive(
+		result = HAL_SPI_TransmitReceive(
 			&spi_device->spi_handler,
 			&reg_value,
 			&read_value,
 			BYTE_SIZE,
 			SPI_TRANSMIT_TIMEOUT_MS
 		);
+		validate_hal_operation(result);
 		buffer[i] = read_value;
 		i++;
 	}
 
-	HAL_SPI_TransmitReceive(
+	result = HAL_SPI_TransmitReceive(
 		&spi_device->spi_handler,
 		&stop_value,
 		&read_value,
 		BYTE_SIZE,
 		SPI_TRANSMIT_TIMEOUT_MS
 	);
-
+	validate_hal_operation(result);
 	buffer[i] = read_value;
 }

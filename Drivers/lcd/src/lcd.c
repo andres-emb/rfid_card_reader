@@ -2,10 +2,12 @@
 #include "lcd.h"
 #include "string.h"
 #include "API_delay.h"
+#include "common.h"
 
 /* Private defines -----------------------------------------------------------*/
-/* Defines the max values to store in the queue to send commands to the lcd */
-#define MAX_QUEUE_SIZE 256
+
+/* Defines the max values to store in the queue to send data to the lcd */
+#define MAX_QUEUE_SIZE 			256
 
 /* Initialize commands */
 #define CMD_INIT1 				0x30
@@ -81,7 +83,20 @@ static void lcd_push_byte_data_array(const uint8_t * buffer, const uint8_t size)
 static void lcd_push_byte_data(const uint8_t data);
 static void lcd_push_byte_control(const uint8_t data);
 
+static void validate_buffer(const uint8_t * buffer);
+
 /* Private functions ---------------------------------------------------------*/
+
+/**
+  * @brief  Validate if the buffer pointer is not NULL
+  * @param  None
+  * @retval None
+  */
+static void validate_buffer(const uint8_t * buffer)
+{
+	if (buffer == NULL) error_handler();
+}
+
 
 /**
   * @brief  Send 4 control bits to the lcd
@@ -115,7 +130,7 @@ static void send_byte_control(const uint8_t value)
   * @retval data: byte from the transmission queue
   */
 static uint8_t transmit_queue_pop_byte(void) {
-	uint8_t data = 0x00;
+	uint8_t data;
 	if (transmit_queue.size > 0) {
 		data = transmit_queue.buffer[transmit_queue.head];
 		transmit_queue.head++;
@@ -126,7 +141,7 @@ static uint8_t transmit_queue_pop_byte(void) {
 		}
 
 	} else {
-		// HANDLE ERROR
+		error_handler();
 	}
 
 	return data;
@@ -148,7 +163,7 @@ static void transmit_queue_push_byte(const uint8_t data) {
 			transmit_queue.tail = 0;
 		}
 	} else {
-		// HANDLE ERROR
+		error_handler();
 	}
 }
 
@@ -176,6 +191,7 @@ static void lcd_push_byte(const uint8_t data, const uint8_t type_mask) {
   */
 static void lcd_push_byte_data_array(const uint8_t * buffer, const uint8_t size)
 {
+	validate_buffer(buffer);
 	for (int i = 0; i < size; i++) {
 		lcd_push_byte_data(buffer[i]);
 	}
@@ -226,6 +242,7 @@ static void lcd_reset_low_row_position(void)
   * @retval None
   */
 static void lcd_push_byte_hex_data_array(const uint8_t * buffer, const uint8_t size) {
+	validate_buffer(buffer);
 	for (int i = 0; i < size; i++) {
 		uint8_t data = buffer[i];
 		uint8_t high_data = (data & HIGH_NIBBLE_MASK) >> LOW_NIBBLE_SHIFT;
@@ -254,6 +271,8 @@ static void lcd_push_byte_hex_data_array(const uint8_t * buffer, const uint8_t s
   */
 void lcd_initialize(I2C_HandleTypeDef * i2c_handler)
 {
+	if (i2c_handler == NULL) error_handler();
+
 	capture_i2c_handlers(i2c_handler);
 	send_half_byte_control(CMD_INIT1);
 	HAL_Delay(CMD_TRANSMIT_DELAY_MS);
@@ -296,6 +315,7 @@ void lcd_clear_screen(void) {
   * @retval None
   */
 void lcd_report_serial_number(const uint8_t * buffer, const uint8_t size) {
+	validate_buffer(buffer);
 
 	lcd_clear_screen();
 	lcd_reset_high_row_position();
