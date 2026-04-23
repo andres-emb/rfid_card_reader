@@ -97,7 +97,6 @@ static void validate_buffer(const uint8_t * buffer)
 	if (buffer == NULL) error_handler();
 }
 
-
 /**
   * @brief  Send 4 control bits to the lcd
   * @param  value: data to be transmitted to the lcd
@@ -105,6 +104,8 @@ static void validate_buffer(const uint8_t * buffer)
   */
 static void send_half_byte_control(const uint8_t value)
 {
+	/* Code taken from the LCD example of the Communication Protocols in Embedded
+	 * Systems class */
 	lcd_send_byte(value | CONTROL_MASK | ENABLE | BACK_LIGHT);
 	HAL_Delay(1);
 	lcd_send_byte(value | CONTROL_MASK | BACK_LIGHT);
@@ -119,6 +120,8 @@ static void send_half_byte_control(const uint8_t value)
   */
 static void send_byte_control(const uint8_t value)
 {
+	/* Code taken from the LCD example of the Communication Protocols in Embedded
+	 * Systems class */
 	send_half_byte_control(value & HIGH_NIBBLE_MASK);
 	send_half_byte_control((value & LOW_NIBBLE_MASK) << LOW_NIBBLE_SHIFT);
 }
@@ -157,7 +160,6 @@ static void transmit_queue_push_byte(const uint8_t data) {
 		transmit_queue.buffer[transmit_queue.tail] = data;
 		transmit_queue.tail++;
 		transmit_queue.size++;
-
 
 		if (transmit_queue.tail % MAX_QUEUE_SIZE == 0) {
 			transmit_queue.tail = 0;
@@ -274,6 +276,9 @@ void lcd_initialize(I2C_HandleTypeDef * i2c_handler)
 	if (i2c_handler == NULL) error_handler();
 
 	capture_i2c_handlers(i2c_handler);
+
+	/* Code taken from the LCD example of the Communication Protocols in Embedded
+	 * Systems class */
 	send_half_byte_control(CMD_INIT1);
 	HAL_Delay(CMD_TRANSMIT_DELAY_MS);
 	send_half_byte_control(CMD_INIT1);
