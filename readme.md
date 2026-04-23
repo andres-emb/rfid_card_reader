@@ -10,6 +10,9 @@ This project demonstrates how to use a **Nucleo STM32 F429ZI** board to interfac
 | RFID reader           | RC522 (MFRC522)                             | SPI       |
 | LCD                   | 16x2 character LCD + I2C backpack (PCF8574) | I2C       |
 
+## Block Diagram
+<img width="747" height="419" alt="image" src="https://github.com/user-attachments/assets/8f30d18c-08a1-4c52-a018-e78f31bbd3c6" />
+
 ## Finite State Machine (FSM) in the RC522 Driver
 
 The RC522 driver implements a **Finite State Machine** to handle card detection UID reading in a non‑blocking  approach. This FSM is particularly useful when integrating the RFID task into a superloop.
@@ -26,7 +29,7 @@ The RC522 driver implements a **Finite State Machine** to handle card detection 
 | `ERROR`                   | Resets the RC522 module                                                                                         |
 ### State Transitions
 
-
+<img width="1015" height="675" alt="image" src="https://github.com/user-attachments/assets/cb1bf0fd-adcf-461e-8ce0-ade4c19b6aab" />
 
 ## References
 
