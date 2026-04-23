@@ -1,0 +1,15 @@
+../Drivers/rc522/src/rc522.c:115:28:transceive_command	1
+../Drivers/rc522/src/rc522.c:145:13:clear_register	1
+../Drivers/rc522/src/rc522.c:157:13:look_for_new_card	1
+../Drivers/rc522/src/rc522.c:187:28:listen_to_new_card	6
+../Drivers/rc522/src/rc522.c:226:13:card_reader_init	2
+../Drivers/rc522/src/rc522.c:254:13:card_reader_reset	1
+../Drivers/rc522/src/rc522.c:267:13:write_register	1
+../Drivers/rc522/src/rc522.c:282:13:write_register_multiple	2
+../Drivers/rc522/src/rc522.c:299:16:read_register	1
+../Drivers/rc522/src/rc522.c:314:13:read_register_multiple	1
+../Drivers/rc522/src/rc522.c:328:28:select_new_card	1
+../Drivers/rc522/src/rc522.c:364:28:listen_to_select_command	6
+../Drivers/rc522/src/rc522.c:412:15:report_serial_number_to_lcd	3
+../Drivers/rc522/src/rc522.c:440:8:card_reader_initialize	1
+../Drivers/rc522/src/rc522.c:452:6:card_reader_poll	16

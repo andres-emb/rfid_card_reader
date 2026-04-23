@@ -3,6 +3,7 @@
 /* Private define ------------------------------------------------------------*/
 /* Set the global timeout of the transmit operation */
 #define SPI_TRANSMIT_TIMEOUT_MS 10
+#define BYTE_SIZE 				1
 
 /* Private variables ---------------------------------------------------------*/
 /* Store the SPI handler */
@@ -68,7 +69,7 @@ void card_reader_write_byte(const uint8_t value)
 	HAL_SPI_Transmit(
 		&spi_device->spi_handler,
 		&value,
-		1,
+		BYTE_SIZE,
 		SPI_TRANSMIT_TIMEOUT_MS
 	);
 }
@@ -102,7 +103,7 @@ uint8_t card_reader_read_byte(const uint8_t reg)
 		&spi_device->spi_handler,
 		&stop_value,
 		&value,
-		1,
+		BYTE_SIZE,
 		SPI_TRANSMIT_TIMEOUT_MS
 	);
 
@@ -125,7 +126,7 @@ void card_reader_read_multiple_byte(const uint8_t reg, uint8_t * buffer, const u
 	HAL_SPI_Transmit(
 		&spi_device->spi_handler,
 		&reg_value,
-		1,
+		BYTE_SIZE,
 		SPI_TRANSMIT_TIMEOUT_MS
 	);
 
@@ -136,7 +137,7 @@ void card_reader_read_multiple_byte(const uint8_t reg, uint8_t * buffer, const u
 			&spi_device->spi_handler,
 			&reg_value,
 			&read_value,
-			1,
+			BYTE_SIZE,
 			SPI_TRANSMIT_TIMEOUT_MS
 		);
 		buffer[i] = read_value;
@@ -147,7 +148,7 @@ void card_reader_read_multiple_byte(const uint8_t reg, uint8_t * buffer, const u
 		&spi_device->spi_handler,
 		&stop_value,
 		&read_value,
-		1,
+		BYTE_SIZE,
 		SPI_TRANSMIT_TIMEOUT_MS
 	);
 

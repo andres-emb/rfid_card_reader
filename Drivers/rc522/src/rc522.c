@@ -7,6 +7,32 @@
 #include "card_commands.h"
 #include "lcd.h"
 
+/* Private definitions ------------------------------------------------------*/
+#define MAX_TRANSCEIVE_BUFFER_SIZE 		16
+#define MAX_TRANSCEIVE_READ_ATTEMPTS 	32
+#define IRQ_TRANSCEIVE_TIMEOUT 			0x01
+#define IRQ_TRANSCEIVE_RX_RECEIVED 		0x30
+
+#define RESET_REGISTER					0x00
+#define RESET_MODULATION				0x26
+
+#define AUTO_TIMEOUT					0x80
+#define PRESCALER_FREQ_400_KHz			0xA9
+#define RELOAD_TIMER_25_MS_H			0x03
+#define RELOAD_TIMER_25_MS_L			0xE8
+#define FORCE_100_ASK					0x40
+#define CRC_MSB							0x3D
+#define TX1_TX2_ENABLE					0x03
+#define SET_ALL_INTERRUPTS				0x7F
+#define FLUSH_FIFO_BUFFER				0x80
+#define START_TRANSMISSION				0x80
+#define CLEAR_MASK						0x80
+
+#define VALID_BITS						7
+#define RESET_DELAY_MS					100
+#define REPORT_DELAY_MS					10000
+#define CARD_SERIAL_NUMBER_BYTES		4
+
 /* Private typedef -----------------------------------------------------------*/
 
 /* Store the card_reader state */
@@ -63,7 +89,6 @@ static void read_register_multiple(
 		const uint8_t size
 );
 static void look_for_new_card(void);
-static void turn_on_antenna(void);
 
 static uint8_t read_register(const uint8_t reg);
 
@@ -93,20 +118,20 @@ static transceive_status_t transceive_command(
 )
 {
 	uint8_t tx_last_bits = valid_bits;
-	uint8_t bit_framming = (0x00 << 4) + tx_last_bits;
+	uint8_t bit_framming = tx_last_bits;
 
 	write_register(COMMAND, CMD_IDLE);
-	write_register(COM_IRQ, 0x7F);
-	write_register(FIFO_LEVEL, 0x80);
+	write_register(COM_IRQ, SET_ALL_INTERRUPTS);
+	write_register(FIFO_LEVEL, FLUSH_FIFO_BUFFER);
 
 	write_register_multiple(FIFO_DATA, request->buffer, request->size);
 
 	write_register(BIT_FRAMMING, bit_framming);
 
 	write_register(COMMAND, CMD_TRANSCEIVE);
-	uint8_t tmp = read_register(BIT_FRAMMING);
+	uint8_t current_framming = read_register(BIT_FRAMMING);
 
-	write_register(BIT_FRAMMING, 0x80 | tmp);
+	write_register(BIT_FRAMMING, START_TRANSMISSION | current_framming);
 
 	return TRANSCEIVE_OK;
 }
@@ -131,17 +156,16 @@ static void clear_register(const uint8_t reg, const uint8_t mask)
   */
 static void look_for_new_card(void)
 {
-	write_register(TX_MODE, 0x00);
-	write_register(RX_MODE, 0x00);
-	write_register(MOD_WIDTH, 0x00);
-	clear_register(COLLISION, 0x80);
-	uint8_t valid_bits = 7;
+	write_register(TX_MODE, RESET_REGISTER);
+	write_register(RX_MODE, RESET_REGISTER);
+	write_register(MOD_WIDTH, RESET_REGISTER);
+	clear_register(COLLISION, CLEAR_MASK);
 
 	transceive_request_t request;
 	request.buffer[0] = SM_CMD_REQ_A;
-	request.size = 1;
+	request.size = STANDARD_CMD_SIZE;
 
-	transceive_command(&request, valid_bits);
+	transceive_command(&request, VALID_BITS);
 }
 
 /**
@@ -169,7 +193,7 @@ static transceive_status_t listen_to_new_card(void)
 		polling_attempts = 1;
 	}
 
-	if (polling_attempts > 32) {
+	if (polling_attempts > MAX_TRANSCEIVE_READ_ATTEMPTS) {
 		polling_attempts = 0;
 		return TRANSCEIVE_ERROR;
 	}
@@ -180,13 +204,13 @@ static transceive_status_t listen_to_new_card(void)
 
 	polling_attempts++;
 
-	uint8_t n = read_register(COM_IRQ);
-	if (n & 0x30) {
+	uint8_t interruptions = read_register(COM_IRQ);
+	if (interruptions & IRQ_TRANSCEIVE_RX_RECEIVED) {
 		polling_attempts = 0;
 		return TRANSCEIVE_OK;
 	}
 
-	if (n & 0x01) {
+	if (interruptions & IRQ_TRANSCEIVE_TIMEOUT) {
 		return TRANSCEIVE_TIMEOUT;
 	}
 
@@ -203,17 +227,21 @@ static void card_reader_init(void)
 {
 	card_reader_reset();
 
-	write_register(TX_MODE, 0x00);
-	write_register(RX_MODE, 0x00);
-	write_register(MOD_WIDTH, 0x26);
-	write_register(T_MODE, 0x80);
-	write_register(T_PRESCALER, 0xA9);
-	write_register(T_RELOAD_H, 0x03);
-	write_register(T_RELOAD_L, 0xE8);
-	write_register(TX_ASK, 0x40);
-	write_register(MODE, 0x3D);
+	write_register(TX_MODE, RESET_REGISTER);
+	write_register(RX_MODE, RESET_REGISTER);
+	write_register(MOD_WIDTH, RESET_MODULATION);
+	write_register(T_MODE, AUTO_TIMEOUT);
+	write_register(T_PRESCALER, PRESCALER_FREQ_400_KHz);
+	write_register(T_RELOAD_H, RELOAD_TIMER_25_MS_H);
+	write_register(T_RELOAD_L, RELOAD_TIMER_25_MS_L);
+	write_register(TX_ASK, FORCE_100_ASK);
+	write_register(MODE, CRC_MSB);
 
-	turn_on_antenna();
+	// Enable antenna TX1 and TX2 pins
+	uint8_t current_tx_behavior = read_register(TX_CONTROL);
+	if ((current_tx_behavior & TX1_TX2_ENABLE) != TX1_TX2_ENABLE) {
+		write_register(TX_CONTROL, current_tx_behavior | TX1_TX2_ENABLE);
+	}
 	card_reader_state = INITIALIZE;
 }
 
@@ -227,7 +255,7 @@ static void card_reader_reset(void)
 {
 	reset_device();
 	write_register(COMMAND, CMD_SOFT_RESET);
-	HAL_Delay(100);
+	HAL_Delay(RESET_DELAY_MS);
 }
 
 /**
@@ -292,20 +320,6 @@ static void read_register_multiple(const uint8_t reg, uint8_t * buffer, const ui
 }
 
 /**
-  * @brief  Write the specific registers to turn on the card reader antenna
-  * @param  None
-  * @retval None
-  */
-static void turn_on_antenna()
-{
-	uint8_t value = read_register(TX_CONTROL);
-
-	if ((value & 0x03) != 0x03) {
-		write_register(TX_CONTROL, value | 0x03);
-	}
-}
-
-/**
   * @brief  Send the select command to read the Smart Card serial number
   * 		once it has discovered a new card
   * @param  None
@@ -313,7 +327,7 @@ static void turn_on_antenna()
   */
 static transceive_status_t select_new_card(void)
 {
-	clear_register(COLLISION, 0x80);
+	clear_register(COLLISION, CLEAR_MASK);
 
 	transceive_request_t request;
 
@@ -357,7 +371,7 @@ static transceive_status_t listen_to_select_command(transceive_request_t * respo
 		polling_attempts = 1;
 	}
 
-	if (polling_attempts > 32) {
+	if (polling_attempts > MAX_TRANSCEIVE_READ_ATTEMPTS) {
 		polling_attempts = 0;
 		return TRANSCEIVE_ERROR;
 	}
@@ -368,8 +382,8 @@ static transceive_status_t listen_to_select_command(transceive_request_t * respo
 
 	polling_attempts++;
 
-	uint8_t n = read_register(COM_IRQ);
-	if (n & 0x30) {
+	uint8_t interruptions = read_register(COM_IRQ);
+	if (interruptions & IRQ_TRANSCEIVE_RX_RECEIVED) {
 
 		uint8_t received_bytes = read_register(FIFO_LEVEL);
 
@@ -380,7 +394,7 @@ static transceive_status_t listen_to_select_command(transceive_request_t * respo
 		return TRANSCEIVE_OK;
 	}
 
-	if (n & 0x01) {
+	if (interruptions & IRQ_TRANSCEIVE_TIMEOUT) {
 		return TRANSCEIVE_TIMEOUT;
 	}
 
@@ -400,8 +414,8 @@ static bool_t report_serial_number_to_lcd(transceive_request_t * select_response
 	static bool_t reported = false;
 
 	if (!reported) {
-		delayInit(&report_delay, 10000);
-		lcd_report_serial_number(select_response->buffer, 4);
+		delayInit(&report_delay, REPORT_DELAY_MS);
+		lcd_report_serial_number(select_response->buffer, CARD_SERIAL_NUMBER_BYTES);
 		reported = true;
 	}
 

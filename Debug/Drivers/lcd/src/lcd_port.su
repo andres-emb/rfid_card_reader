@@ -1,0 +1,2 @@
+../Drivers/lcd/src/lcd_port.c:20:6:capture_i2c_handlers	16	static
+../Drivers/lcd/src/lcd_port.c:30:6:lcd_send_byte	24	static
