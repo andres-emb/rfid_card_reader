@@ -103,6 +103,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+  /* Delay to check visual heart beat of the Nucleo */
   delay_t delay;
   delayInit(&delay, 100);
   /* USER CODE END SysInit */
@@ -138,7 +139,9 @@ int main(void)
   {
 	  card_reader_poll();
 	  lcd_poll();
+
 	  if(delayRead(&delay)) {
+		  /* Toggling LED indicates the device is working */
 		  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 	  }
     /* USER CODE END WHILE */
